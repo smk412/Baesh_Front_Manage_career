@@ -201,119 +201,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // 이력 관리 API (미완)
-  app.get('/api/experiences', async (req, res) => {
-    try {
-      const experiences = await storage.getExperiences(1);
-      res.json(experiences);
-    } catch (error) {
-      console.error('Error fetching experiences:', error);
-      res.status(500).json({ error: 'Failed to fetch experiences' });
-    }
-  });
 
+  // GET: 모든 이력 조회
+app.get('/api/experiences', async (req, res) => {
+  try {
+    // Spring 서버로 요청 전달
+    const springResponse = await fetch(`http://localhost:8080/api/experiences`);
+    if (!springResponse.ok) {
+      throw new Error('Spring API for GET experiences failed');
+    }
+    const experiences = await springResponse.json();
+    res.json(experiences);
+  } catch (error) {
+    console.error('Error fetching experiences from Spring:', error);
+    res.status(500).json({ error: 'Failed to fetch experiences' });
+  }
+});
+
+// POST: 새 이력 추가 (AI 요약 포함)
   app.post('/api/experiences', async (req, res) => {
-    try {
-      // 1. 입력 검증
-      const experienceSchema = z.object({
-        title: z.string().min(1, "Title is required"),
-        role: z.string().min(1, "Role is required"),
+  try {
+    const experienceSchema = z.object({
+      title: z.string().min(1),
+      role: z.string().min(1),
+      startDate: z.string(),
+      endDate: z.string(),
+      achievement: z.string().optional(),
+      tags: z.array(z.string()),
+    });
+    const validatedData = experienceSchema.parse(req.body);
+
+    // Spring 서버의 'summarize-experience' 엔드포인트 호출
+    const springResponse = await fetch(`http://localhost:8080/api/summarize-experience`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(validatedData),
+    });
+
+    if (!springResponse.ok) {
+        const errorText = await springResponse.text();
+        console.error('Spring API returned error:', springResponse.status, errorText);
+        throw new Error(`Spring API failed: ${errorText}`);
+    }
+
+    const resultFromSpring = await springResponse.json();
+    res.status(201).json(resultFromSpring);
+  } catch (error) {
+    console.error('Error creating experience via Spring:', error);
+    res.status(400).json({ error: 'Invalid experience data or Spring API error' });
+  }
+});
+
+  // PUT: 기존 이력 수정
+app.put('/api/experiences/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid ID' });
+    }
+
+    const experienceSchema = z.object({
+        title: z.string().min(1),
+        role: z.string().min(1),
         startDate: z.string(),
         endDate: z.string(),
         achievement: z.string().optional(),
         tags: z.array(z.string()),
-      });
-      const validatedData = experienceSchema.parse(req.body);
+    });
+    const validatedData = experienceSchema.parse(req.body);
 
-      // 2. Spring API 서버에 요약 + 저장 요청
-      const springResponse = await fetch('http://localhost:8080/api/summarize-experience', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title: validatedData.title,
-          role: validatedData.role,
-          achievement: validatedData.achievement || '',
-          tags: validatedData.tags
-        }),
-        credentials: 'include'
-      });
+    // Spring 서버로 수정 요청 전달 (AI 요약이 필요하다면 별도 엔드포인트 사용 가능)
+    const springResponse = await fetch(`http://localhost:8080/api/experiences/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(validatedData),
+    });
 
-      const text = await springResponse.text();
-
-      if (!springResponse.ok) {
-        console.error('Spring API returned error:', springResponse.status, text);
-        throw new Error('Spring API failed');
-      }
-
-      if (!text) {
-        console.error('Spring 응답이 비어 있습니다.');
-        throw new Error('Empty response from Spring API');
-      }
-
-      let resultFromSpring;
-      try {
-        resultFromSpring = JSON.parse(text);
-      } catch (e) {
-        console.error('JSON 파싱 실패:', e, text);
-        throw new Error('Invalid JSON format from Spring API');
-      }
-
-      res.status(201).json(resultFromSpring);
-    } catch (error) {
-      console.error('Error creating experience:', error);
-      res.status(400).json({ error: 'Invalid experience data' });
+    if (!springResponse.ok) {
+        const errorText = await springResponse.text();
+        console.error('Spring API returned error:', springResponse.status, errorText);
+        throw new Error(`Spring API failed: ${errorText}`);
     }
-  });
 
-  app.put('/api/experiences/:id', async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'Invalid ID' });
-      }
+    const updatedExperience = await springResponse.json();
+    res.json(updatedExperience);
+  } catch (error) {
+    console.error('Error updating experience via Spring:', error);
+    res.status(400).json({ error: 'Invalid experience data or Spring API error' });
+  }
+});
 
-      const experienceSchema = z.object({
-        title: z.string().min(1, "Title is required"),
-        role: z.string().min(1, "Role is required"),
-        startDate: z.string(),
-        endDate: z.string(),
-        achievement: z.string().optional(),
-        tags: z.array(z.string()),
-      });
-
-      const validatedData = experienceSchema.parse(req.body);
-      const updatedExperience = await storage.updateExperience(id, validatedData);
-      
-      if (!updatedExperience) {
-        return res.status(404).json({ error: 'Experience not found' });
-      }
-      
-      res.json(updatedExperience);
-    } catch (error) {
-      console.error('Error updating experience:', error);
-      res.status(400).json({ error: 'Invalid experience data' });
+  // DELETE: 이력 삭제
+app.delete('/api/experiences/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid ID' });
     }
-  });
 
-  app.delete('/api/experiences/:id', async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'Invalid ID' });
-      }
+    // Spring 서버로 삭제 요청 전달
+    const springResponse = await fetch(`http://localhost:8080/api/experiences/${id}`, {
+        method: 'DELETE',
+    });
 
-      const success = await storage.deleteExperience(id);
-      if (!success) {
-        return res.status(404).json({ error: 'Experience not found' });
-      }
-      
-      res.status(204).end();
-    } catch (error) {
-      console.error('Error deleting experience:', error);
-      res.status(500).json({ error: 'Failed to delete experience' });
+    if (!springResponse.ok) {
+        const errorText = await springResponse.text();
+        console.error('Spring API returned error:', springResponse.status, errorText);
+        throw new Error(`Spring API failed: ${errorText}`);
     }
-  });
+    
+    res.status(204).end();
+  } catch (error) {
+    console.error('Error deleting experience via Spring:', error);
+    res.status(500).json({ error: 'Failed to delete experience' });
+  }
+});
 
   //AI 자기소개서 피드백 (완)
   app.get('/api/selfIntrFeedBack', async(req,res)=>{
