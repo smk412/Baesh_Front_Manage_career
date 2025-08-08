@@ -180,7 +180,7 @@ interface Store {
   experiences: Experience[];
   fetchExperiences: () => Promise<void>;
   addExperience: (experience: Omit<Experience, 'id'>) => Promise<Experience | undefined>;
-  updateExperience: (experience: Experience) => Promise<void>;
+  updateExperience: (experience: Experience) => Promise<Experience | undefined>; // updateExperience의 반환 타입 수정 void -> undefined
   deleteExperience: (id: number) => Promise<void>;
   
   //자기소개서 AI피드백
@@ -345,7 +345,8 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
-  updateExperience: async (experience) => {
+  updateExperience: async (experience: Experience)
+  : Promise<Experience | undefined> => { // 1. 반환 타입 명시
     try {
       const response = await apiRequest('PUT', `/api/experiences/${experience.id}`, experience);
       if (response.ok) {
@@ -355,6 +356,7 @@ export const useStore = create<Store>((set, get) => ({
             exp.id === updatedExperience.id ? updatedExperience : exp
           ) 
         }));
+        return updatedExperience; // 2. 수정된 객체 반환
       }
     } catch (error) {
       console.error('Failed to update experience:', error);
