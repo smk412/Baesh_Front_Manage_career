@@ -231,8 +231,8 @@ app.get('/api/experiences', async (req, res) => {
     });
     const validatedData = experienceSchema.parse(req.body);
 
-    // Spring 서버의 'summarize-experience' 엔드포인트 호출
-    const springResponse = await fetch(`http://localhost:8080/api/summarize-experience`, {
+    // Spring 서버의 '/api/experiences' 엔드포인트 호출
+    const springResponse = await fetch(`http://localhost:8080/api/experiences`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(validatedData),
@@ -256,38 +256,21 @@ app.get('/api/experiences', async (req, res) => {
 app.put('/api/experiences/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: 'Invalid ID' });
-    }
+    const validatedData = req.body; // DTO 스키마 검증 생략 (필요 시 추가)
 
-    const experienceSchema = z.object({
-        title: z.string().min(1),
-        role: z.string().min(1),
-        startDate: z.string(),
-        endDate: z.string(),
-        achievement: z.string().optional(),
-        tags: z.array(z.string()),
-    });
-    const validatedData = experienceSchema.parse(req.body);
-
-    // Spring 서버로 수정 요청 전달 (AI 요약이 필요하다면 별도 엔드포인트 사용 가능)
+    // storage.updateExperience 호출을 fetch로 변경
     const springResponse = await fetch(`http://localhost:8080/api/experiences/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(validatedData),
     });
 
-    if (!springResponse.ok) {
-        const errorText = await springResponse.text();
-        console.error('Spring API returned error:', springResponse.status, errorText);
-        throw new Error(`Spring API failed: ${errorText}`);
-    }
-
+    if (!springResponse.ok) { throw new Error('Spring API failed'); }
     const updatedExperience = await springResponse.json();
     res.json(updatedExperience);
   } catch (error) {
     console.error('Error updating experience via Spring:', error);
-    res.status(400).json({ error: 'Invalid experience data or Spring API error' });
+    res.status(400).json({ error: 'Invalid experience data' });
   }
 });
 
@@ -295,21 +278,13 @@ app.put('/api/experiences/:id', async (req, res) => {
 app.delete('/api/experiences/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: 'Invalid ID' });
-    }
 
-    // Spring 서버로 삭제 요청 전달
+    // storage.deleteExperience 호출을 fetch로 변경
     const springResponse = await fetch(`http://localhost:8080/api/experiences/${id}`, {
         method: 'DELETE',
     });
 
-    if (!springResponse.ok) {
-        const errorText = await springResponse.text();
-        console.error('Spring API returned error:', springResponse.status, errorText);
-        throw new Error(`Spring API failed: ${errorText}`);
-    }
-    
+    if (!springResponse.ok) { throw new Error('Spring API failed'); }
     res.status(204).end();
   } catch (error) {
     console.error('Error deleting experience via Spring:', error);
